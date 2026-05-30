@@ -1,1 +1,1 @@
-"""PM2020 lot update automation package."""
+"""PM2020 lot-update automation package."""

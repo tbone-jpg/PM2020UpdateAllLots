@@ -1,12 +1,5 @@
 """Login helper for the PM2020 backend.
 
-This module keeps the login behavior small and reusable.  It uses the stable
-ASP.NET control IDs found in Login.aspx:
-
-    #txtUserName
-    #txtPassword
-    #btnLogin
-
 Credentials may be supplied in creds.json:
 
     {
@@ -30,8 +23,10 @@ from typing import Any
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
+PROJECT_DIR = Path(__file__).resolve().parent
+
 DEFAULT_LOGIN_URL = "https://pm2020.preferredparking.com:2020/Login.aspx"
-DEFAULT_CREDS_PATH = Path(__file__).with_name("creds.json")
+DEFAULT_CREDS_PATH = PROJECT_DIR / "creds.json"
 
 USERNAME_SELECTOR = "#txtUserName"
 PASSWORD_SELECTOR = "#txtPassword"
@@ -61,7 +56,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def load_credentials(creds_path: str | Path = DEFAULT_CREDS_PATH) -> Credentials:
     """Load credentials from creds.json, with environment-variable fallback."""
-    path = Path(creds_path)
+    path = Path(creds_path).expanduser()
     data = _read_json(path)
 
     username = (
@@ -105,9 +100,8 @@ def login_to_pm2020(
     login_button = page.locator(LOGIN_BUTTON_SELECTOR)
     login_button.wait_for(state="visible", timeout=timeout_ms)
 
-    # Login.aspx uses an ASP.NET __doPostBack handler on the Login button.  A
-    # click is preferable to direct form submission because it lets the page run
-    # its own postback code and preserve hidden fields like __VIEWSTATE.
+    # Login.aspx uses an ASP.NET __doPostBack handler on the Login button.
+    # Clicking the real button lets the page preserve its hidden ASP.NET fields.
     try:
         with page.expect_navigation(wait_until="domcontentloaded", timeout=15_000):
             login_button.click()
