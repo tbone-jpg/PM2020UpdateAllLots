@@ -1,6 +1,6 @@
 """PM2020 lot metadata updater.
 
-Reads the enriched CSV, lets you choose one lot, five lots, or all lots, then
+Reads the enriched CSV, lets you choose one, three, five, or all lots, then
 updates only the explicitly allowlisted Lot Info fields in PM2020.
 
 Post-login safety contract:
@@ -13,6 +13,9 @@ Post-login safety contract:
     - #ContentPlaceHolder1_txtNotes
 * No search boxes, search buttons, Add New, Cancel, Close, tab, map, amenity,
   photo, notes, rules, space, rate, profile, or menu controls are clicked.
+* If any of the three allowlisted fields already contains text, the script
+  warns before changing that field and lets you choose old PM2020 text, new
+  CSV text, or skip the lot without saving.
 * After each lot save, the script navigates back to Lots.aspx for the next lot
   instead of clicking Cancel or Close.
 """
@@ -30,7 +33,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import Page
+from playwright.sync_api import Page, Route
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -49,6 +52,10 @@ except ImportError:
         login_to_pm2020,
     )
 
+SCRIPT_VERSION = "2026-06-02-existing-field-choice-v7"
+
+EXISTING_FIELD_PROMPT_MARKER = "ACTIVE: prompts old/new/skip before overwriting ADDRESS/OVERVIEW/HIGHLIGHTS"
+
 PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_CSV_PATH = PROJECT_DIR / "PM_Surface_Lots_Image_Audit_PM2020_Facility_Overview.csv"
 DEFAULT_STORAGE_STATE_PATH = PROJECT_DIR / "storage_state.json"
@@ -60,6 +67,7 @@ LOT_ROW_SELECTOR = "#tblLots tbody tr[onclick*='getLotDetails']"
 LOT_MODAL_SELECTOR = "#dvLotForm"
 HIDDEN_LOT_ID_SELECTOR = "#ContentPlaceHolder1_hdnLotID"
 SAVE_BUTTON_SELECTOR = "#btnLotInfo"
+SAVE_LOTS_ROUTE = "**/Lots.aspx/SaveLots"
 
 ADDRESS_SELECTOR = "#ContentPlaceHolder1_txtAddress"
 FACILITY_OVERVIEW_SELECTOR = "#ContentPlaceHolder1_txtFacOverview"
@@ -188,6 +196,105 @@ CLICK_LOT_NAME_BY_ID_SCRIPT = r"""
 }
 """
 
+BUILD_SAFE_SAVE_LOTS_PAYLOAD_SCRIPT = r"""
+() => {
+    const $ = window.jQuery || window.$;
+
+    function byId(id) {
+        return document.getElementById(id);
+    }
+
+    function valueById(id) {
+        const element = byId(id);
+        if (!element) return '';
+        let value;
+        if ($) {
+            try { value = $('#' + id).val(); } catch (err) { value = undefined; }
+        }
+        if (value === undefined) value = element.value;
+        if (value === null || value === undefined) return '';
+        return String(value);
+    }
+
+    function selectedValueBySelector(selector) {
+        let value;
+        if ($) {
+            try { value = $(selector + ' option:selected').val(); } catch (err) { value = undefined; }
+        }
+        if (value === undefined || value === null) {
+            const element = document.querySelector(selector);
+            value = element ? element.value : '';
+        }
+        if (value === null || value === undefined) return '';
+        return String(value);
+    }
+
+    function stripDollar(value) {
+        return String(value || '').replace('$', '');
+    }
+
+    function stdRateValue() {
+        let value = valueById('ContentPlaceHolder1_txtStandardRate');
+        if (value.indexOf('$') !== -1) {
+            const parts = value.split('$');
+            value = parts.length > 1 ? parts[1] : parts[0];
+        }
+        return value;
+    }
+
+    function checkedByIcheckOrInput(id) {
+        const element = byId(id);
+        const parentChecked = $ ? $('#' + id).parent().hasClass('checked') : false;
+        return !!(parentChecked || (element && element.checked));
+    }
+
+    function statusValue() {
+        if (checkedByIcheckOrInput('rdActive')) return '1';
+        if (checkedByIcheckOrInput('rdInActive')) return '0';
+        return '';
+    }
+
+    function optionalDropdown(selector) {
+        const value = selectedValueBySelector(selector);
+        return value === '2' ? '' : value;
+    }
+
+    return {
+        ID: valueById('ContentPlaceHolder1_hdnLotID') || '0',
+        Name: valueById('ContentPlaceHolder1_txtName'),
+        Description: valueById('ContentPlaceHolder1_txtDescription'),
+        Spaces: valueById('ContentPlaceHolder1_txtSpaces'),
+        SpacesAssigned: valueById('ContentPlaceHolder1_txtAssignedSpaces'),
+        StdRate: stdRateValue(),
+        Notes: valueById('ContentPlaceHolder1_txtNotes'),
+        CardFee: stripDollar(valueById('ContentPlaceHolder1_txtCardFee')),
+        ManualWebSetup: optionalDropdown('#ddlWebSetUp'),
+        ManagersEMail: valueById('ContentPlaceHolder1_txtManagerEmail'),
+        RequireEmployeeID: optionalDropdown('#ddlEmployeeID'),
+        ExcludeFromWaitingList: optionalDropdown('#ddlWaitingList'),
+        TotalLotCapacity: valueById('ContentPlaceHolder1_txtLotCapacity'),
+        QB_ClassCode: valueById('ContentPlaceHolder1_txtQB_ClassCode'),
+        Status: statusValue(),
+        LotPermitId: valueById('ContentPlaceHolder1_ddlPermit'),
+        IsLocalPermit: String(checkedByIcheckOrInput('chklocalPermit')),
+        IsMonthly: String(checkedByIcheckOrInput('chkMonthly')),
+        IsEvent: String(checkedByIcheckOrInput('chkEvent')),
+        IsDaily: String(checkedByIcheckOrInput('chkDaily')),
+        IsSoldOut: String(checkedByIcheckOrInput('chkSoldOut')),
+        AccessCardRepFee: stripDollar(valueById('ContentPlaceHolder1_txtCardRepFee')),
+        PermitFee: stripDollar(valueById('ContentPlaceHolder1_txtPermitFee')),
+        PermitReplacementFee: stripDollar(valueById('ContentPlaceHolder1_txtPermitRepFee')),
+        assignedRegion: valueById('ContentPlaceHolder1_ddlAssignedRegions'),
+        hasMultipleAccessCard: String(checkedByIcheckOrInput('chkMultipleAccessCard')),
+        ManagerUserID: valueById('ContentPlaceHolder1_ddlManagers'),
+        Address: valueById('ContentPlaceHolder1_txtAddress'),
+        FacOverview: valueById('ContentPlaceHolder1_txtFacOverview'),
+        Address2: valueById('ContentPlaceHolder1_txtAddress2'),
+        PubRateDescription: valueById('ContentPlaceHolder1_txtPubRateDesc')
+    };
+}
+"""
+
 
 @dataclass(frozen=True)
 class LotUpdate:
@@ -232,6 +339,13 @@ class LotUpdate:
             f"CSV #{self.csv_data_index} / row {self.csv_row_number} | "
             f"ID {self.parkmaster_lot_id} | {self.lot_name} | {self.address}"
         )
+
+    def desired_values_by_label(self) -> dict[str, str]:
+        return {
+            "PM2020 ADDR": self.address,
+            "PM2020 Facility Overview": self.facility_overview,
+            "PM2020 Facility Highlights": self.facility_highlights,
+        }
 
 
 @dataclass(frozen=True)
@@ -424,13 +538,21 @@ def choose_lots_interactively(lots: Sequence[LotUpdate]) -> tuple[str, list[LotU
     print_lots(complete, limit=15)
 
     while True:
-        mode = input("\nChoose test size: 1, 5, or all: ").strip().lower()
+        mode = input("\nChoose test size: 1, 3, 5, or all: ").strip().lower()
         if mode in {"1", "one"}:
             raw = input(
                 "Enter one selector as row:<csv row>, #<CSV data row>, id:<Parkmaster ID>, exact Lot Name, "
                 "or press ENTER for the first complete row: "
             ).strip()
             return "one", [complete[0]] if not raw else resolve_selection_tokens(lots, [raw])
+        if mode in {"3", "three"}:
+            raw = input(
+                "Enter three comma-separated selectors, or press ENTER for the first three complete rows: "
+            ).strip()
+            selected = complete[:3] if not raw else resolve_selection_tokens(lots, _split_selection_tokens(raw))
+            if len(selected) != 3:
+                raise ValueError(f"Expected exactly 3 selected lots, got {len(selected)}.")
+            return "three", selected
         if mode in {"5", "five"}:
             raw = input(
                 "Enter five comma-separated selectors, or press ENTER for the first five complete rows: "
@@ -441,7 +563,7 @@ def choose_lots_interactively(lots: Sequence[LotUpdate]) -> tuple[str, list[LotU
             return "five", selected
         if mode in {"all", "a"}:
             return "all", complete
-        print("Please enter 1, 5, or all.")
+        print("Please enter 1, 3, 5, or all.")
 
 
 def choose_lots_from_args(
@@ -457,6 +579,12 @@ def choose_lots_from_args(
         selected = [complete[0]] if not tokens else resolve_selection_tokens(lots, tokens)
         if len(selected) != 1:
             raise ValueError(f"--mode one expects exactly 1 lot, got {len(selected)}.")
+        return mode, selected
+
+    if mode == "three":
+        selected = complete[:3] if not tokens else resolve_selection_tokens(lots, tokens)
+        if len(selected) != 3:
+            raise ValueError(f"--mode three expects exactly 3 lots, got {len(selected)}.")
         return mode, selected
 
     if mode == "five":
@@ -489,12 +617,14 @@ def require_complete_selected_lots(selected: Sequence[LotUpdate]) -> None:
 def confirm_before_browser(mode: str, selected: Sequence[LotUpdate], *, assume_yes: bool, dry_run: bool) -> None:
     print("\nSelected lots:")
     print_lots(selected)
-    print("\nFields that will be written:")
+    print("\nFields that may be written, after existing-value review:")
     for label, selector in ALLOWED_LOT_FILL_SELECTORS.items():
         print(f"  {selector} <= {label}")
     print("\nAllowed clicks during the post-login lot-update workflow:")
     print("  1. The matched lot-name cell in #tblLots")
-    print(f"  2. {SAVE_BUTTON_SELECTOR} only after field values are filled")
+    print(f"  2. {SAVE_BUTTON_SELECTOR} only after field values are filled and verified")
+    print("\nExisting-value rule:")
+    print("  If an allowlisted field already has text, the script warns before changing it.")
 
     if dry_run:
         return
@@ -510,22 +640,23 @@ def confirm_before_browser(mode: str, selected: Sequence[LotUpdate], *, assume_y
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Read PM2020 lot-update values from CSV, select 1/5/all lots, and update "
+            "Read PM2020 lot-update values from CSV, select 1/3/5/all lots, and update "
             "only allowlisted Lot Info fields."
         )
     )
+    parser.add_argument("--version", action="version", version=f"main.py {SCRIPT_VERSION}")
     parser.add_argument("--csv", default=str(DEFAULT_CSV_PATH), help="Path to input CSV.")
     parser.add_argument(
         "--mode",
-        choices=["interactive", "one", "five", "all"],
+        choices=["interactive", "one", "three", "five", "all"],
         default="interactive",
-        help="Selection mode. Default prompts for 1, 5, or all.",
+        help="Selection mode. Default prompts for 1, 3, 5, or all.",
     )
     parser.add_argument(
         "--select",
         default="",
         help=(
-            "Comma-separated selections for --mode one/five. Use row:<csv row>, "
+            "Comma-separated selections for --mode one/three/five. Use row:<csv row>, "
             "#<CSV data row>, id:<Parkmaster Lot Id>, exact Lot Name, or exact PM2020 ADDR."
         ),
     )
@@ -539,6 +670,16 @@ def parse_args() -> argparse.Namespace:
         "--yes",
         action="store_true",
         help="Skip the typed UPDATE / UPDATE ALL confirmation prompt.",
+    )
+    parser.add_argument(
+        "--existing-field-policy",
+        choices=["prompt", "new", "old", "skip"],
+        default="prompt",
+        help=(
+            "What to do when an allowlisted field already has nonblank text that differs from the CSV. "
+            "Default prompt asks per field. 'new' overwrites, 'old' keeps PM2020 text, "
+            "and 'skip' skips that lot."
+        ),
     )
     parser.add_argument("--creds", default=str(DEFAULT_CREDS_PATH), help="Path to creds.json.")
     parser.add_argument("--login-url", default=DEFAULT_LOGIN_URL, help="PM2020 login URL.")
@@ -558,14 +699,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--wait-ms",
         type=int,
-        default=3_000,
-        help="Extra wait after key Lots.aspx steps. Default: 3000 ms.",
+        default=500,
+        help="Extra wait after key Lots.aspx steps. Default: 500 ms.",
     )
     parser.add_argument(
         "--timeout-ms",
         type=int,
         default=30_000,
         help="Default Playwright timeout in milliseconds.",
+    )
+    parser.add_argument(
+        "--otp-timeout-ms",
+        type=int,
+        default=300_000,
+        help="How long to wait for manual OTP/IP-auth completion. Default: 300000 ms.",
     )
     parser.add_argument(
         "--continue-on-error",
@@ -578,6 +725,47 @@ def parse_args() -> argparse.Namespace:
         help="Keep the browser open until ENTER is pressed after the run.",
     )
     return parser.parse_args()
+
+
+def is_ip_auth_page(page: Page) -> bool:
+    try:
+        if "IPAuthentication.aspx" in page.url:
+            return True
+        return page.locator("#btnSubmit").is_visible(timeout=1_000) and page.locator("#hdnCode").is_visible(timeout=1_000)
+    except PlaywrightTimeoutError:
+        return False
+    except PlaywrightError:
+        return False
+
+
+def wait_for_manual_otp_if_required(page: Page, *, headless: bool, otp_timeout_ms: int) -> None:
+    if not is_ip_auth_page(page):
+        return
+
+    if headless:
+        raise RuntimeError(
+            "PM2020 requires OTP/IP authentication, but the browser is running headlessly. "
+            "Rerun without --headless so you can enter the OTP manually."
+        )
+
+    print("\nPM2020 requires OTP/IP authentication.")
+    print("Enter the one-time password in the browser and click Submit.")
+    print("The script will continue automatically after PM2020 leaves IPAuthentication.aspx.")
+
+    try:
+        page.wait_for_function(
+            "() => !location.href.includes('IPAuthentication.aspx')",
+            timeout=otp_timeout_ms,
+        )
+        try:
+            page.wait_for_load_state("networkidle", timeout=5_000)
+        except PlaywrightTimeoutError:
+            pass
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError(
+            "Timed out waiting for manual OTP/IP-auth completion. "
+            "Enter the OTP and click Submit, or rerun with a larger --otp-timeout-ms."
+        ) from exc
 
 
 def go_to_lots_admin(page: Page, lots_url: str, *, timeout_ms: int = 30_000) -> str:
@@ -656,6 +844,91 @@ def wait_for_detail_form_ready(page: Page, lot: LotUpdate, *, wait_ms: int, time
     page.wait_for_timeout(wait_ms)
 
 
+def get_allowed_field_values(page: Page, *, timeout_ms: int) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for label, selector in ALLOWED_LOT_FILL_SELECTORS.items():
+        locator = page.locator(selector)
+        if locator.count() != 1:
+            raise RuntimeError(f"Expected exactly one field for {label} at {selector}; found {locator.count()}.")
+        locator.wait_for(state="visible", timeout=timeout_ms)
+        values[label] = locator.input_value(timeout=timeout_ms)
+    return values
+
+
+def _preview_text(value: str, *, max_chars: int = 500) -> str:
+    if value.strip() == "":
+        return "(blank)"
+    cleaned = value.replace("\r", "").replace("\n", "\\n")
+    if len(cleaned) > max_chars:
+        return cleaned[:max_chars] + f"... [{len(cleaned) - max_chars} more chars]"
+    return cleaned
+
+
+def choose_final_allowed_field_values(
+    lot: LotUpdate,
+    current_values: dict[str, str],
+    *,
+    existing_field_policy: str,
+) -> tuple[dict[str, str] | None, list[str]]:
+    """Return final values and labels to fill, or (None, []) to skip this lot."""
+
+    desired_values = lot.desired_values_by_label()
+    final_values: dict[str, str] = {}
+    changed_labels: list[str] = []
+    warned = False
+
+    for label in ALLOWED_LOT_FILL_SELECTORS:
+        old = current_values.get(label, "")
+        new = desired_values[label]
+
+        if old.strip():
+            if not warned:
+                print("\nExisting PM2020 text detected in one or more allowlisted fields.")
+                warned = True
+
+            print(f"\n{label}")
+            print(f"  Current PM2020: {_preview_text(old)}")
+            print(f"  New CSV:        {_preview_text(new)}")
+
+            if old == new:
+                print("  Decision: current PM2020 text already matches the CSV; leaving it as-is.")
+                final_values[label] = old
+                continue
+
+            if existing_field_policy == "new":
+                print("  Decision: --existing-field-policy new; using CSV text.")
+                final_values[label] = new
+            elif existing_field_policy == "old":
+                print("  Decision: --existing-field-policy old; keeping current PM2020 text.")
+                final_values[label] = old
+            elif existing_field_policy == "skip":
+                print("  Decision: --existing-field-policy skip; skipping this lot before filling or saving.")
+                return None, []
+            else:
+                while True:
+                    answer = input(
+                        "  Use [n]ew CSV text, keep [o]ld PM2020 text, [s]kip this lot, or [a]bort? "
+                    ).strip().lower()
+                    if answer in {"n", "new"}:
+                        final_values[label] = new
+                        break
+                    if answer in {"o", "old"}:
+                        final_values[label] = old
+                        break
+                    if answer in {"s", "skip"}:
+                        return None, []
+                    if answer in {"a", "abort", "q", "quit"}:
+                        raise KeyboardInterrupt
+                    print("  Please enter n, o, s, or a.")
+        else:
+            final_values[label] = new
+
+        if final_values[label] != old:
+            changed_labels.append(label)
+
+    return final_values, changed_labels
+
+
 def safe_fill_lot_field(page: Page, selector: str, value: str, *, label: str, wait_ms: int, timeout_ms: int) -> None:
     if selector not in ALLOWED_LOT_FILL_SELECTORS.values():
         raise RuntimeError(f"Refusing to fill non-allowlisted selector: {selector}")
@@ -674,12 +947,44 @@ def safe_fill_lot_field(page: Page, selector: str, value: str, *, label: str, wa
     actual = locator.input_value(timeout=timeout_ms)
     if actual != value:
         raise RuntimeError(
-            f"After filling {label}, PM2020 field value did not match the CSV value.\n"
+            f"After filling {label}, PM2020 field value did not match the selected value.\n"
             f"Expected: {value!r}\nActual:   {actual!r}"
         )
 
 
-def click_save_lot_info(page: Page, *, wait_ms: int, timeout_ms: int) -> tuple[int | None, str | None]:
+def build_safe_save_lots_payload(page: Page) -> dict[str, str]:
+    payload = page.evaluate(BUILD_SAFE_SAVE_LOTS_PAYLOAD_SCRIPT)
+    if not isinstance(payload, dict):
+        raise RuntimeError("Could not build a safe SaveLots payload from the current lot form.")
+
+    result: dict[str, str] = {}
+    for key, value in payload.items():
+        if value is None:
+            result[str(key)] = ""
+        else:
+            result[str(key)] = str(value)
+
+    if result.get("ID", "").strip() in {"", "0"}:
+        raise RuntimeError("Safe SaveLots payload has no loaded lot ID; refusing to save.")
+
+    return result
+
+
+def _install_next_savelots_payload_rewrite(page: Page, payload: dict[str, str]):
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    def handler(route: Route) -> None:
+        request = route.request
+        headers = dict(request.headers)
+        headers["content-type"] = "application/json; charset=utf-8"
+        headers.pop("content-length", None)
+        route.continue_(headers=headers, post_data=body)
+
+    page.route(SAVE_LOTS_ROUTE, handler)
+    return handler
+
+
+def click_save_lot_info(page: Page, *, wait_ms: int, timeout_ms: int) -> tuple[int, str]:
     save_button = page.locator(SAVE_BUTTON_SELECTOR)
     if save_button.count() != 1:
         raise RuntimeError(f"Expected exactly one save button at {SAVE_BUTTON_SELECTOR}; found {save_button.count()}.")
@@ -710,24 +1015,45 @@ def click_save_lot_info(page: Page, *, wait_ms: int, timeout_ms: int) -> tuple[i
     if attrs.get("disabled") or attrs.get("hiddenClass") or attrs.get("display") == "none" or attrs.get("visibility") == "hidden":
         raise RuntimeError("Save button exists but is disabled/hidden; refusing to click.")
 
+    payload = build_safe_save_lots_payload(page)
+    route_handler = _install_next_savelots_payload_rewrite(page, payload)
+
     page.wait_for_timeout(wait_ms)
     try:
         with page.expect_response(lambda response: "Lots.aspx/SaveLots" in response.url, timeout=timeout_ms) as response_info:
             save_button.click(timeout=timeout_ms)
         response = response_info.value
-        body = None
+        body = ""
         try:
-            body = response.text()[:500]
+            body = response.text()[:4_000]
         except Exception:
-            body = None
+            body = ""
         page.wait_for_timeout(wait_ms)
-        return response.status, body
     except PlaywrightTimeoutError as exc:
         page.wait_for_timeout(wait_ms)
         raise RuntimeError("Timed out waiting for Lots.aspx/SaveLots after clicking #btnLotInfo.") from exc
+    finally:
+        try:
+            page.unroute(SAVE_LOTS_ROUTE, route_handler)
+        except Exception:
+            pass
+
+    if response.status != 200:
+        raise RuntimeError(f"SaveLots failed with HTTP {response.status}; body={body!r}")
+
+    try:
+        parsed = json.loads(body) if body else {}
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"SaveLots returned non-JSON response body: {body!r}") from exc
+
+    saved_id = parsed.get("d") if isinstance(parsed, dict) else None
+    if saved_id is None or str(saved_id).strip() in {"", "0"}:
+        raise RuntimeError(f"SaveLots did not confirm a saved lot ID; body={body!r}")
+
+    return response.status, body
 
 
-def update_one_lot(page: Page, lot: LotUpdate, *, lots_url: str, wait_ms: int, timeout_ms: int) -> UpdateResult:
+def update_one_lot(page: Page, lot: LotUpdate, *, lots_url: str, wait_ms: int, timeout_ms: int, existing_field_policy: str) -> UpdateResult:
     current_url = go_to_lots_admin(page, lots_url, timeout_ms=timeout_ms)
     if appears_to_still_be_login_page(page):
         raise RuntimeError(f"Navigation to Lots.aspx returned to the login page. Current URL: {current_url}")
@@ -745,30 +1071,40 @@ def update_one_lot(page: Page, lot: LotUpdate, *, lots_url: str, wait_ms: int, t
 
     wait_for_detail_form_ready(page, lot, wait_ms=wait_ms, timeout_ms=timeout_ms)
 
-    safe_fill_lot_field(
-        page,
-        ADDRESS_SELECTOR,
-        lot.address,
-        label="PM2020 ADDR",
-        wait_ms=wait_ms,
-        timeout_ms=timeout_ms,
+    current_values = get_allowed_field_values(page, timeout_ms=timeout_ms)
+    final_values, changed_labels = choose_final_allowed_field_values(
+        lot,
+        current_values,
+        existing_field_policy=existing_field_policy,
     )
-    safe_fill_lot_field(
-        page,
-        FACILITY_OVERVIEW_SELECTOR,
-        lot.facility_overview,
-        label="PM2020 Facility Overview",
-        wait_ms=wait_ms,
-        timeout_ms=timeout_ms,
-    )
-    safe_fill_lot_field(
-        page,
-        FACILITY_HIGHLIGHTS_SELECTOR,
-        lot.facility_highlights,
-        label="PM2020 Facility Highlights",
-        wait_ms=wait_ms,
-        timeout_ms=timeout_ms,
-    )
+
+    if final_values is None:
+        return UpdateResult(
+            csv_row_number=lot.csv_row_number,
+            parkmaster_lot_id=lot.parkmaster_lot_id,
+            lot_name=lot.lot_name,
+            status="skipped",
+            message="Skipped because existing PM2020 text was detected and the user/policy chose skip; no fields filled and Save was not clicked.",
+        )
+
+    if not changed_labels:
+        return UpdateResult(
+            csv_row_number=lot.csv_row_number,
+            parkmaster_lot_id=lot.parkmaster_lot_id,
+            lot_name=lot.lot_name,
+            status="skipped",
+            message="No field changes selected; Save was not clicked.",
+        )
+
+    for label in changed_labels:
+        safe_fill_lot_field(
+            page,
+            ALLOWED_LOT_FILL_SELECTORS[label],
+            final_values[label],
+            label=label,
+            wait_ms=wait_ms,
+            timeout_ms=timeout_ms,
+        )
 
     status, body = click_save_lot_info(page, wait_ms=wait_ms, timeout_ms=timeout_ms)
     return UpdateResult(
@@ -822,6 +1158,12 @@ def run_browser_updates(selected: Sequence[LotUpdate], args: argparse.Namespace)
             )
             print(f"Login click completed. Current URL: {login_url_after_click}")
 
+            wait_for_manual_otp_if_required(
+                page,
+                headless=args.headless,
+                otp_timeout_ms=args.otp_timeout_ms,
+            )
+
             if appears_to_still_be_login_page(page):
                 raise SystemExit(
                     "Login form is still visible after clicking Login. "
@@ -841,6 +1183,7 @@ def run_browser_updates(selected: Sequence[LotUpdate], args: argparse.Namespace)
                         lots_url=args.lots_url,
                         wait_ms=args.wait_ms,
                         timeout_ms=args.timeout_ms,
+                        existing_field_policy=args.existing_field_policy,
                     )
                     results.append(result)
                     print(f"Status: {result.status}. {result.message}")
@@ -884,9 +1227,12 @@ def run_browser_updates(selected: Sequence[LotUpdate], args: argparse.Namespace)
 
 def main() -> None:
     args = parse_args()
+    print(f"PM2020UpdateAllLots main.py version: {SCRIPT_VERSION}")
 
     if args.wait_ms < 0:
         raise SystemExit("--wait-ms must be zero or greater.")
+    if args.otp_timeout_ms < 0:
+        raise SystemExit("--otp-timeout-ms must be zero or greater.")
 
     lots = load_lot_updates(args.csv)
     if args.list:
