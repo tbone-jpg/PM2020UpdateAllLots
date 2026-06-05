@@ -1,0 +1,6 @@
+creds.json
+storage_state.json
+logs/
+__pycache__/
+*.pyc
+.venv/

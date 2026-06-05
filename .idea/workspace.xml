@@ -4,9 +4,10 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="664fe030-bd3f-480b-a060-447ff12165b6" name="Changes" comment="fixed apostraphe issue in main">
+    <list default="true" id="664fe030-bd3f-480b-a060-447ff12165b6" name="Changes" comment="parity check for PM_Surface csv">
+      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/PM_Surface_Lots_Image_Audit_PM2020_Facility_Overview.csv" beforeDir="false" afterPath="$PROJECT_DIR$/PM_Surface_Lots_Image_Audit_PM2020_Facility_Overview.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/creds.json" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -37,23 +38,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="2.327330142537966" />
-      <entry key="MS500" value="6.348933546073786" />
-      <entry key="S2" value="15.23015444797278" />
-      <entry key="S5" value="23.51867326870956" />
-      <entry key="S10" value="28.587065402097814" />
-      <entry key="S30" value="33.19061361806723" />
-      <entry key="S60" value="34.54673664717813" />
-      <entry key="M2" value="35.26068947932663" />
-      <entry key="M5" value="35.70116415128627" />
-      <entry key="M10" value="35.87829045063177" />
-      <entry key="M15" value="36.50212549940887" />
-      <entry key="M30" value="48.87606252914867" />
-      <entry key="H1" value="95.98948199421329" />
-      <entry key="H2" value="165.36615223784995" />
-      <entry key="H4" value="225.9776611918599" />
-      <entry key="D1" value="297.6890989243058" />
-      <entry key="W1" value="312.4585840320122" />
+      <entry key="MS100" value="2.4018266787060063" />
+      <entry key="MS500" value="5.868050023283889" />
+      <entry key="S2" value="7.999795025644873" />
+      <entry key="S5" value="8.577997943701742" />
+      <entry key="S10" value="8.785140406895795" />
+      <entry key="S30" value="8.927502676084714" />
+      <entry key="S60" value="8.96364037992797" />
+      <entry key="M2" value="8.981792353781877" />
+      <entry key="M5" value="8.992710248416053" />
+      <entry key="M10" value="8.996354007655768" />
+      <entry key="M15" value="8.99756909023764" />
+      <entry key="M30" value="8.998784421019444" />
+      <entry key="H1" value="8.999406179351645" />
+      <entry key="H2" value="9.01152820749007" />
+      <entry key="H4" value="9.345963925982769" />
+      <entry key="D1" value="57.994441584212694" />
+      <entry key="W1" value="255.45911505803352" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -75,23 +76,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="2.1629065019763933" />
-      <entry key="MS500" value="6.267695632583324" />
-      <entry key="S2" value="15.157003396537851" />
-      <entry key="S5" value="23.45987337239813" />
-      <entry key="S10" value="28.548384363638394" />
-      <entry key="S30" value="33.17495963577648" />
-      <entry key="S60" value="34.538509383596256" />
-      <entry key="M2" value="35.256471099539965" />
-      <entry key="M5" value="35.69945103563748" />
-      <entry key="M10" value="35.87742919623741" />
-      <entry key="M15" value="36.5015455194828" />
-      <entry key="M30" value="48.875719101913106" />
-      <entry key="H1" value="95.98920793878483" />
-      <entry key="H2" value="165.36593946647181" />
-      <entry key="H4" value="225.97752162466546" />
-      <entry key="D1" value="297.68906910801263" />
-      <entry key="W1" value="312.4585795794918" />
+      <entry key="MS100" value="2.2762320870949604" />
+      <entry key="MS500" value="5.802438155308289" />
+      <entry key="S2" value="7.976891350852549" />
+      <entry key="S5" value="8.568123132049896" />
+      <entry key="S10" value="8.780074879103864" />
+      <entry key="S30" value="8.925784782248483" />
+      <entry key="S60" value="8.962777701364356" />
+      <entry key="M2" value="8.981360077137781" />
+      <entry key="M5" value="8.992537112219297" />
+      <entry key="M10" value="8.996267401919756" />
+      <entry key="M15" value="8.997511344712834" />
+      <entry key="M30" value="8.99875554407242" />
+      <entry key="H1" value="8.999391739068598" />
+      <entry key="H2" value="9.011520665028641" />
+      <entry key="H4" value="9.345955628243274" />
+      <entry key="D1" value="57.99442369867869" />
+      <entry key="W1" value="255.4591085982139" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -348,7 +349,7 @@
       <workItem from="1780143844147" duration="1334000" />
       <workItem from="1780148465063" duration="590000" />
       <workItem from="1780150399745" duration="18225000" />
-      <workItem from="1780405636952" duration="7356000" />
+      <workItem from="1780405636952" duration="12217000" />
     </task>
     <task id="LOCAL-00001" summary="fixed apostraphe issue in main">
       <option name="closed" value="true" />
@@ -366,7 +367,15 @@
       <option name="project" value="LOCAL" />
       <updated>1780399620179</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="parity check for PM_Surface csv">
+      <option name="closed" value="true" />
+      <created>1780602380404</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1780602380404</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -374,7 +383,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="fixed apostraphe issue in main" />
-    <option name="LAST_COMMIT_MESSAGE" value="fixed apostraphe issue in main" />
+    <MESSAGE value="parity check for PM_Surface csv" />
+    <option name="LAST_COMMIT_MESSAGE" value="parity check for PM_Surface csv" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/PM2020UpdateAllLots$main.coverage" NAME="main Coverage Results" MODIFIED="1780407676060" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
