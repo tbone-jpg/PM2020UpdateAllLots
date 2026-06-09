@@ -5,9 +5,18 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="664fe030-bd3f-480b-a060-447ff12165b6" name="Changes" comment="parity check for PM_Surface csv">
-      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/PATCH_NOTES.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/PM2020_Locations_Information.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/README_regional_template.diff" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/main_regional_template.diff" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/creds.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/PM_Surface_Lots_Image_Audit_PM2020_Facility_Overview.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/__main__.py" beforeDir="false" afterPath="$PROJECT_DIR$/__main__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/login.py" beforeDir="false" afterPath="$PROJECT_DIR$/login.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -350,6 +359,7 @@
       <workItem from="1780148465063" duration="590000" />
       <workItem from="1780150399745" duration="18225000" />
       <workItem from="1780405636952" duration="12217000" />
+      <workItem from="1781002766944" duration="3264000" />
     </task>
     <task id="LOCAL-00001" summary="fixed apostraphe issue in main">
       <option name="closed" value="true" />

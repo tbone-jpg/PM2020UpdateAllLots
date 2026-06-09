@@ -1,26 +1,28 @@
 # PM2020UpdateAllLots
 
-Playwright automation for updating selected PM2020 lot metadata from an enriched CSV export.
+Playwright automation for updating selected PM2020 lot metadata from the regional master CSV template.
 
 The current source of truth is `main.py`:
 
 ```text
-SCRIPT_VERSION = "2026-06-02-existing-field-choice-v7"
+SCRIPT_VERSION = "2026-06-08-regional-template-v1"
 ```
 
 This version lets you select one, three, five, or all lots; reviews existing PM2020 text before overwriting allowlisted fields; supports manual OTP/IP authentication; and uses a safer SaveLots request-body rewrite while still clicking PM2020's real Lot Info Save button.
 
 ## What it updates
 
-The script fills only these three PM2020 Lot Info fields:
+The script fills only these five PM2020 Lot Info fields:
 
 | CSV column | PM2020 selector | Meaning |
 |---|---|---|
-| `PM2020 ADDR` | `#ContentPlaceHolder1_txtAddress` | Normalized street address |
-| `PM2020 Facility Overview` | `#ContentPlaceHolder1_txtFacOverview` | Marketing/location overview |
-| `PM2020 Facility Highlights` | `#ContentPlaceHolder1_txtNotes` | Facility highlights text |
+| `Lot Title` | `#ContentPlaceHolder1_txtDescription` | Public/display title for the lot |
+| `Facility Highlights` | `#ContentPlaceHolder1_txtNotes` | Facility highlights text |
+| `Facility Overview` | `#ContentPlaceHolder1_txtFacOverview` | Marketing/location overview |
+| `Address 1` | `#ContentPlaceHolder1_txtAddress` | Street address |
+| `Address 2` | `#ContentPlaceHolder1_txtAddress2` | City/state/ZIP line |
 
-No other Lot Info fields are filled by the automation.
+`Lot Name` is used for display/selection. `Lot ID` is used to match the CSV row to PM2020. The automation does **not** fill PM2020's internal lot-name field.
 
 ## Critical safety guardrails
 
@@ -29,10 +31,12 @@ During the post-login lot-update workflow, the script is intentionally allowlist
 Allowed post-login actions:
 
 1. Click only the matched lot-name cell in `#tblLots`.
-2. Fill only these three fields:
-   - `#ContentPlaceHolder1_txtAddress`
-   - `#ContentPlaceHolder1_txtFacOverview`
+2. Fill only these five fields:
+   - `#ContentPlaceHolder1_txtDescription`
    - `#ContentPlaceHolder1_txtNotes`
+   - `#ContentPlaceHolder1_txtFacOverview`
+   - `#ContentPlaceHolder1_txtAddress`
+   - `#ContentPlaceHolder1_txtAddress2`
 3. Click only the exact Lot Info Save button:
 
 ```html
@@ -45,7 +49,7 @@ After each save, the script navigates back to `Lots.aspx` for the next lot inste
 
 ## How lots are matched
 
-The CSV field `Parkmaster Lot Id` is the primary identifier.
+The CSV field `Lot ID` is the primary identifier.
 
 On `https://pm2020.preferredparking.com:2020/Admin/Lots.aspx`, the lot list is inside `#tblLots`. PM2020 rows use an `onclick` handler like:
 
@@ -53,7 +57,7 @@ On `https://pm2020.preferredparking.com:2020/Admin/Lots.aspx`, the lot list is i
 <tr onclick="getLotDetails(507)">
 ```
 
-The script matches the CSV `Parkmaster Lot Id` to `getLotDetails(<id>)`, clicks the matched lot-name cell, waits for the Lot Info modal `#dvLotForm`, and verifies the hidden lot ID before editing:
+The script matches the CSV `Lot ID` to `getLotDetails(<id>)`, clicks the matched lot-name cell, waits for the Lot Info modal `#dvLotForm`, and verifies the hidden lot ID before editing:
 
 ```text
 #ContentPlaceHolder1_hdnLotID
@@ -101,10 +105,10 @@ Do not commit real credentials. Keep `creds.json`, `storage_state.json`, and `lo
 
 ## CSV input
 
-By default, place this CSV in the project directory:
+By default, place this regional master CSV in the project directory:
 
 ```text
-PM_Surface_Lots_Image_Audit_PM2020_Facility_Overview.csv
+PM2020_Locations_Information.csv
 ```
 
 You can use another file with `--csv`:
@@ -117,34 +121,38 @@ Required CSV columns:
 
 ```text
 Lot Name
-Description
-Parkmaster Lot Id
-PM2020 ADDR
-PM2020 Facility Overview
-PM2020 Facility Highlights
+Lot ID
+Lot Title
+Facility Highlights
+Facility Overview
+Address 1
+Address 2
 ```
 
 Rows with missing required update values are skipped unless you select them directly, in which case the script refuses to update until the CSV is fixed.
 
 ## Data hygiene before a full run
 
-PM2020's native JavaScript save path is fragile because it hand-builds JSON-like AJAX payloads. This project includes a safer SaveLots request-body rewrite before clicking Save, but the safest data-side practice is still to remove straight apostrophes from the CSV update values before a full run, especially in:
+PM2020's native JavaScript save path is fragile because it hand-builds JSON-like AJAX payloads. This project includes a safer SaveLots request-body rewrite before clicking Save, but the safest data-side practice is still to remove straight apostrophes from CSV update values before a full run, especially in:
 
 ```text
-PM2020 Facility Overview
-PM2020 Facility Highlights
+Lot Title
+Facility Highlights
+Facility Overview
+Address 1
+Address 2
 ```
 
 For example, avoid values like:
 
 ```text
-Surface Lot Parking in the heart of Uptown's Third Ward
+Surface lot parking near Uptown's Third Ward.
 ```
 
-Prefer removing the apostrophe:
+Prefer removing or rephrasing the apostrophe:
 
 ```text
-Surface Lot Parking in the heart of Uptowns Third Ward
+Surface lot parking near Uptown Third Ward.
 ```
 
 ## Login and OTP/IP authentication
@@ -196,9 +204,11 @@ Supported selectors for `--select` and interactive prompts:
 |---|---|
 | `row:2` | Spreadsheet/CSV row number, including the header row |
 | `#1` | CSV data row index, excluding the header row |
-| `id:412` | Parkmaster Lot Id |
+| `id:412` | Lot ID |
 | `CLT - 1016 W 5th` | Exact `Lot Name` |
-| `1016 W. 5th St.` | Exact `PM2020 ADDR` |
+| `1016 West 5th Street Lot` | Exact `Lot Title` |
+| `1016 W. 5th St.` | Exact `Address 1` |
+| `Charlotte, NC 28202` | Exact `Address 2` |
 
 Examples:
 
@@ -219,7 +229,7 @@ Before opening the browser, the script prints the selected rows and asks for a t
 
 ## Existing PM2020 text behavior
 
-Before filling any of the three allowlisted fields, the script reads the current PM2020 values.
+Before filling any of the five allowlisted fields, the script reads the current PM2020 values.
 
 If an allowlisted field already has nonblank text and that text differs from the CSV value, the default behavior is to prompt:
 
@@ -251,7 +261,7 @@ Default:
 --existing-field-policy prompt
 ```
 
-If the chosen final values do not change any of the three allowlisted fields, the script skips the lot and does not click Save.
+If the chosen final values do not change any of the five allowlisted fields, the script skips the lot and does not click Save.
 
 ## Save behavior
 
@@ -354,7 +364,7 @@ python -m PM2020UpdateAllLots
 
 | Option | Default | Purpose |
 |---|---:|---|
-| `--csv PATH` | default project CSV | Use a different input CSV |
+| `--csv PATH` | `PM2020_Locations_Information.csv` | Use a different input CSV |
 | `--mode interactive|one|three|five|all` | `interactive` | Choose update scope |
 | `--select VALUE` | blank | Select specific lots for one/three/five modes |
 | `--list` | off | Print CSV rows and exit |
@@ -415,7 +425,7 @@ Use:
 python main.py --list
 ```
 
-Confirm that the CSV row has the correct `Parkmaster Lot Id`. The script matches that value to PM2020's `getLotDetails(<id>)` row handler.
+Confirm that the CSV row has the correct `Lot ID`. The script matches that value to PM2020's `getLotDetails(<id>)` row handler.
 
 ### Backend validation failure
 
@@ -425,7 +435,7 @@ If manual save works but the script fails, inspect the generated log under `logs
 
 ### Apostrophe-related save failure
 
-Scrub straight apostrophes from the CSV update values and rerun the affected lot. Facility Overview and Facility Highlights are the most likely columns to contain problematic text.
+Scrub straight apostrophes from the CSV update values and rerun the affected lot. Lot Title, Facility Highlights, and Facility Overview are the most likely columns to contain problematic text.
 
 ## Recommended local-only files
 

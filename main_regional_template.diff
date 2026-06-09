@@ -1,0 +1,266 @@
+--- main(40).py	2026-06-08 20:46:57.688557625 +0000
++++ PM2020UpdateAllLots_regional_patch/main.py	2026-06-08 20:49:03.204743080 +0000
+@@ -1,21 +1,23 @@
+ """PM2020 lot metadata updater.
+ 
+-Reads the enriched CSV, lets you choose one, three, five, or all lots, then
+-updates only the explicitly allowlisted Lot Info fields in PM2020.
++Reads the regional master CSV, lets you choose one, three, five, or all lots,
++then updates only the explicitly allowlisted Lot Info fields in PM2020.
+ 
+ Post-login safety contract:
+ 
+ * The only lot-list click is the matched lot-name cell in #tblLots.
+ * The only save click is the exact #btnLotInfo button with onclick="saveLotsInfo();".
+ * The only lot fields written are:
+-    - #ContentPlaceHolder1_txtAddress
+-    - #ContentPlaceHolder1_txtFacOverview
++    - #ContentPlaceHolder1_txtDescription
+     - #ContentPlaceHolder1_txtNotes
++    - #ContentPlaceHolder1_txtFacOverview
++    - #ContentPlaceHolder1_txtAddress
++    - #ContentPlaceHolder1_txtAddress2
+ * No search boxes, search buttons, Add New, Cancel, Close, tab, map, amenity,
+   photo, notes, rules, space, rate, profile, or menu controls are clicked.
+-* If any of the three allowlisted fields already contains text, the script
+-  warns before changing that field and lets you choose old PM2020 text, new
+-  CSV text, or skip the lot without saving.
++* If any allowlisted field already contains text, the script warns before
++  changing that field and lets you choose old PM2020 text, new CSV text, or
++  skip the lot without saving.
+ * After each lot save, the script navigates back to Lots.aspx for the next lot
+   instead of clicking Cancel or Close.
+ """
+@@ -52,12 +54,12 @@
+         login_to_pm2020,
+     )
+ 
+-SCRIPT_VERSION = "2026-06-02-existing-field-choice-v7"
++SCRIPT_VERSION = "2026-06-08-regional-template-v1"
+ 
+-EXISTING_FIELD_PROMPT_MARKER = "ACTIVE: prompts old/new/skip before overwriting ADDRESS/OVERVIEW/HIGHLIGHTS"
++EXISTING_FIELD_PROMPT_MARKER = "ACTIVE: prompts old/new/skip before overwriting LOT TITLE/HIGHLIGHTS/OVERVIEW/ADDRESS 1/ADDRESS 2"
+ 
+ PROJECT_DIR = Path(__file__).resolve().parent
+-DEFAULT_CSV_PATH = PROJECT_DIR / "PM_Surface_Lots_Image_Audit_PM2020_Facility_Overview.csv"
++DEFAULT_CSV_PATH = PROJECT_DIR / "PM2020_Locations_Information.csv"
+ DEFAULT_STORAGE_STATE_PATH = PROJECT_DIR / "storage_state.json"
+ DEFAULT_LOG_DIR = PROJECT_DIR / "logs"
+ DEFAULT_LOTS_URL = "https://pm2020.preferredparking.com:2020/Admin/Lots.aspx"
+@@ -69,14 +71,18 @@
+ SAVE_BUTTON_SELECTOR = "#btnLotInfo"
+ SAVE_LOTS_ROUTE = "**/Lots.aspx/SaveLots"
+ 
+-ADDRESS_SELECTOR = "#ContentPlaceHolder1_txtAddress"
+-FACILITY_OVERVIEW_SELECTOR = "#ContentPlaceHolder1_txtFacOverview"
++LOT_TITLE_SELECTOR = "#ContentPlaceHolder1_txtDescription"
+ FACILITY_HIGHLIGHTS_SELECTOR = "#ContentPlaceHolder1_txtNotes"
++FACILITY_OVERVIEW_SELECTOR = "#ContentPlaceHolder1_txtFacOverview"
++ADDRESS_1_SELECTOR = "#ContentPlaceHolder1_txtAddress"
++ADDRESS_2_SELECTOR = "#ContentPlaceHolder1_txtAddress2"
+ 
+ ALLOWED_LOT_FILL_SELECTORS = {
+-    "PM2020 ADDR": ADDRESS_SELECTOR,
+-    "PM2020 Facility Overview": FACILITY_OVERVIEW_SELECTOR,
+-    "PM2020 Facility Highlights": FACILITY_HIGHLIGHTS_SELECTOR,
++    "Lot Title": LOT_TITLE_SELECTOR,
++    "Facility Highlights": FACILITY_HIGHLIGHTS_SELECTOR,
++    "Facility Overview": FACILITY_OVERVIEW_SELECTOR,
++    "Address 1": ADDRESS_1_SELECTOR,
++    "Address 2": ADDRESS_2_SELECTOR,
+ }
+ EXPECTED_SAVE_ONCLICK = "saveLotsInfo();"
+ GET_LOT_DETAILS_RE = re.compile(r"getLotDetails\s*\(\s*(\d+)\s*\)")
+@@ -301,11 +307,12 @@
+     csv_data_index: int  # 1-based data row, excluding header.
+     csv_row_number: int  # spreadsheet/CSV line number, including header.
+     lot_name: str
+-    description: str
+     parkmaster_lot_id: str
+-    address: str
+-    facility_overview: str
++    lot_title: str
+     facility_highlights: str
++    facility_overview: str
++    address_1: str
++    address_2: str
+ 
+     @property
+     def is_complete(self) -> bool:
+@@ -314,9 +321,11 @@
+             for value in (
+                 self.lot_name,
+                 self.parkmaster_lot_id,
+-                self.address,
+-                self.facility_overview,
++                self.lot_title,
+                 self.facility_highlights,
++                self.facility_overview,
++                self.address_1,
++                self.address_2,
+             )
+         )
+ 
+@@ -325,26 +334,33 @@
+         if not self.lot_name.strip():
+             missing.append("Lot Name")
+         if not self.parkmaster_lot_id.strip():
+-            missing.append("Parkmaster Lot Id")
+-        if not self.address.strip():
+-            missing.append("PM2020 ADDR")
+-        if not self.facility_overview.strip():
+-            missing.append("PM2020 Facility Overview")
++            missing.append("Lot ID")
++        if not self.lot_title.strip():
++            missing.append("Lot Title")
+         if not self.facility_highlights.strip():
+-            missing.append("PM2020 Facility Highlights")
++            missing.append("Facility Highlights")
++        if not self.facility_overview.strip():
++            missing.append("Facility Overview")
++        if not self.address_1.strip():
++            missing.append("Address 1")
++        if not self.address_2.strip():
++            missing.append("Address 2")
+         return missing
+ 
+     def display_key(self) -> str:
+         return (
+             f"CSV #{self.csv_data_index} / row {self.csv_row_number} | "
+-            f"ID {self.parkmaster_lot_id} | {self.lot_name} | {self.address}"
++            f"ID {self.parkmaster_lot_id} | {self.lot_name} | "
++            f"{self.lot_title} | {self.address_1}, {self.address_2}"
+         )
+ 
+     def desired_values_by_label(self) -> dict[str, str]:
+         return {
+-            "PM2020 ADDR": self.address,
+-            "PM2020 Facility Overview": self.facility_overview,
+-            "PM2020 Facility Highlights": self.facility_highlights,
++            "Lot Title": self.lot_title,
++            "Facility Highlights": self.facility_highlights,
++            "Facility Overview": self.facility_overview,
++            "Address 1": self.address_1,
++            "Address 2": self.address_2,
+         }
+ 
+ 
+@@ -392,14 +408,15 @@
+ 
+         headers = reader.fieldnames
+         h_lot_name = _find_header(headers, ["Lot Name"])
+-        h_description = _find_header(headers, ["Description"])
+-        h_lot_id = _find_header(headers, ["Parkmaster Lot Id", "Parkmaster Lot ID", "Lot Id", "Lot ID"])
+-        h_address = _find_header(headers, ["PM2020 ADDR", "PM2020 Address"])
+-        h_overview = _find_header(headers, ["PM2020 Facility Overview", "Facility Overview"])
++        h_lot_id = _find_header(headers, ["Lot ID", "Lot Id", "Parkmaster Lot Id", "Parkmaster Lot ID"])
++        h_lot_title = _find_header(headers, ["Lot Title", "Description"])
+         h_highlights = _find_header(
+             headers,
+-            ["PM2020 Facility Highlights", "Facility Highlights", "PM2020 Highlights"],
++            ["Facility Highlights", "PM2020 Facility Highlights", "PM2020 Highlights"],
+         )
++        h_overview = _find_header(headers, ["Facility Overview", "PM2020 Facility Overview"])
++        h_address_1 = _find_header(headers, ["Address 1", "Address1", "PM2020 ADDR", "PM2020 Address"])
++        h_address_2 = _find_header(headers, ["Address 2", "Address2", "PM2020 Address 2", "PM2020 Address2"])
+ 
+         lots: list[LotUpdate] = []
+         for csv_row_number, row in enumerate(reader, start=2):
+@@ -410,11 +427,12 @@
+                     csv_data_index=csv_row_number - 1,
+                     csv_row_number=csv_row_number,
+                     lot_name=_cell(row, h_lot_name),
+-                    description=_cell(row, h_description),
+                     parkmaster_lot_id=_cell(row, h_lot_id),
+-                    address=_cell(row, h_address),
+-                    facility_overview=_cell(row, h_overview),
++                    lot_title=_cell(row, h_lot_title),
+                     facility_highlights=_cell(row, h_highlights),
++                    facility_overview=_cell(row, h_overview),
++                    address_1=_cell(row, h_address_1),
++                    address_2=_cell(row, h_address_2),
+                 )
+             )
+ 
+@@ -437,12 +455,13 @@
+         print("No lots to show.")
+         return
+ 
+-    print("CSV # | Row | Parkmaster ID | Lot Name | PM2020 ADDR")
+-    print("-" * 104)
++    print("CSV # | Row | Lot ID | Lot Name | Lot Title | Address 1 | Address 2")
++    print("-" * 132)
+     for lot in shown:
+         print(
+-            f"{lot.csv_data_index:>5} | {lot.csv_row_number:>3} | {lot.parkmaster_lot_id:<13} | "
+-            f"{lot.lot_name:<38.38} | {lot.address}"
++            f"{lot.csv_data_index:>5} | {lot.csv_row_number:>3} | {lot.parkmaster_lot_id:<7} | "
++            f"{lot.lot_name:<28.28} | {lot.lot_title:<30.30} | "
++            f"{lot.address_1:<24.24} | {lot.address_2}"
+         )
+     if limit is not None and len(lots) > limit:
+         print(f"... {len(lots) - limit} more lots not shown. Use --list to print all rows.")
+@@ -502,13 +521,21 @@
+     if exact_lot_name:
+         return _single_match(raw, exact_lot_name)
+ 
+-    exact_address = [lot for lot in lots if lot.address.casefold() == raw.casefold()]
+-    if exact_address:
+-        return _single_match(raw, exact_address)
++    exact_lot_title = [lot for lot in lots if lot.lot_title.casefold() == raw.casefold()]
++    if exact_lot_title:
++        return _single_match(raw, exact_lot_title)
++
++    exact_address_1 = [lot for lot in lots if lot.address_1.casefold() == raw.casefold()]
++    if exact_address_1:
++        return _single_match(raw, exact_address_1)
++
++    exact_address_2 = [lot for lot in lots if lot.address_2.casefold() == raw.casefold()]
++    if exact_address_2:
++        return _single_match(raw, exact_address_2)
+ 
+     raise ValueError(
+         f"No CSV lot matched {raw!r}. Use row:<csv row>, #<CSV data row>, "
+-        "id:<Parkmaster Lot Id>, exact Lot Name, or exact PM2020 ADDR."
++        "id:<Lot ID>, exact Lot Name, exact Lot Title, exact Address 1, or exact Address 2."
+     )
+ 
+ 
+@@ -541,7 +568,7 @@
+         mode = input("\nChoose test size: 1, 3, 5, or all: ").strip().lower()
+         if mode in {"1", "one"}:
+             raw = input(
+-                "Enter one selector as row:<csv row>, #<CSV data row>, id:<Parkmaster ID>, exact Lot Name, "
++                "Enter one selector as row:<csv row>, #<CSV data row>, id:<Lot ID>, exact Lot Name, exact Lot Title, exact Address 1, exact Address 2, "
+                 "or press ENTER for the first complete row: "
+             ).strip()
+             return "one", [complete[0]] if not raw else resolve_selection_tokens(lots, [raw])
+@@ -640,8 +667,8 @@
+ def parse_args() -> argparse.Namespace:
+     parser = argparse.ArgumentParser(
+         description=(
+-            "Read PM2020 lot-update values from CSV, select 1/3/5/all lots, and update "
+-            "only allowlisted Lot Info fields."
++            "Read PM2020 regional-template lot values from CSV, select 1/3/5/all lots, "
++            "and update only allowlisted Lot Info fields."
+         )
+     )
+     parser.add_argument("--version", action="version", version=f"main.py {SCRIPT_VERSION}")
+@@ -657,7 +684,7 @@
+         default="",
+         help=(
+             "Comma-separated selections for --mode one/three/five. Use row:<csv row>, "
+-            "#<CSV data row>, id:<Parkmaster Lot Id>, exact Lot Name, or exact PM2020 ADDR."
++            "#<CSV data row>, id:<Lot ID>, exact Lot Name, exact Lot Title, exact Address 1, or exact Address 2."
+         ),
+     )
+     parser.add_argument("--list", "--list-csv", action="store_true", help="List CSV rows and exit.")
+@@ -800,7 +827,7 @@
+     if missing:
+         sample = ", ".join(sorted(list(page_ids))[:20])
+         raise RuntimeError(
+-            "These selected CSV Parkmaster Lot Ids were not found in the PM2020 lot table; "
++            "These selected CSV Lot IDs were not found in the PM2020 lot table; "
+             f"no updates were written: {', '.join(missing)}. Sample page IDs: {sample}"
+         )
+ 
