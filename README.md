@@ -5,10 +5,10 @@ Playwright automation for updating selected PM2020 lot metadata from the regiona
 The current source of truth is `main.py`:
 
 ```text
-SCRIPT_VERSION = "2026-06-08-regional-template-v1"
+SCRIPT_VERSION = "2026-06-11-website-diagnostics-v1"
 ```
 
-This version lets you select one, three, five, or all lots; reviews existing PM2020 text before overwriting allowlisted fields; supports manual OTP/IP authentication; and uses a safer SaveLots request-body rewrite while still clicking PM2020's real Lot Info Save button.
+This version lets you select one lot, three lots, five lots, all lots, or all lots with no existing-text prompts; reviews existing PM2020 text before overwriting allowlisted fields unless all no prompt is selected; supports manual OTP/IP authentication; and uses a safer SaveLots request-body rewrite while still clicking PM2020's real Lot Info Save button.
 
 ## What it updates
 
@@ -186,8 +186,10 @@ python main.py
 Interactive mode asks for:
 
 ```text
-1, 3, 5, or all
+1, 3, 5, all, or all no prompt
 ```
+
+`all no prompt` selects every complete CSV row and automatically uses the CSV value when an allowlisted PM2020 field already contains different text.
 
 CLI modes:
 

@@ -54,7 +54,10 @@ except ImportError:
         login_to_pm2020,
     )
 
-SCRIPT_VERSION = "2026-06-08-regional-template-v1"
+SCRIPT_VERSION = "2026-06-11-website-diagnostics-v1"
+ALL_NO_PROMPT_MODE = "all_no_prompt"
+MAX_WEBSITE_DIAGNOSTIC_EVENTS = 80
+MAX_WEBSITE_DIAGNOSTIC_TEXT = 800
 
 EXISTING_FIELD_PROMPT_MARKER = "ACTIVE: prompts old/new/skip before overwriting LOT TITLE/HIGHLIGHTS/OVERVIEW/ADDRESS 1/ADDRESS 2"
 
@@ -70,6 +73,20 @@ LOT_MODAL_SELECTOR = "#dvLotForm"
 HIDDEN_LOT_ID_SELECTOR = "#ContentPlaceHolder1_hdnLotID"
 SAVE_BUTTON_SELECTOR = "#btnLotInfo"
 SAVE_LOTS_ROUTE = "**/Lots.aspx/SaveLots"
+
+INT_SAVE_LOTS_PAYLOAD_FIELDS = {
+    "ID",
+    "Spaces",
+    "SpacesAssigned",
+    "ManualWebSetup",
+    "RequireEmployeeID",
+    "ExcludeFromWaitingList",
+    "TotalLotCapacity",
+    "Status",
+    "LotPermitId",
+    "assignedRegion",
+    "ManagerUserID",
+}
 
 LOT_TITLE_SELECTOR = "#ContentPlaceHolder1_txtDescription"
 FACILITY_HIGHLIGHTS_SELECTOR = "#ContentPlaceHolder1_txtNotes"
@@ -260,9 +277,8 @@ BUILD_SAFE_SAVE_LOTS_PAYLOAD_SCRIPT = r"""
         return '';
     }
 
-    function optionalDropdown(selector) {
-        const value = selectedValueBySelector(selector);
-        return value === '2' ? '' : value;
+    function dropdownValue(selector) {
+        return selectedValueBySelector(selector);
     }
 
     return {
@@ -274,10 +290,10 @@ BUILD_SAFE_SAVE_LOTS_PAYLOAD_SCRIPT = r"""
         StdRate: stdRateValue(),
         Notes: valueById('ContentPlaceHolder1_txtNotes'),
         CardFee: stripDollar(valueById('ContentPlaceHolder1_txtCardFee')),
-        ManualWebSetup: optionalDropdown('#ddlWebSetUp'),
+        ManualWebSetup: dropdownValue('#ddlWebSetUp'),
         ManagersEMail: valueById('ContentPlaceHolder1_txtManagerEmail'),
-        RequireEmployeeID: optionalDropdown('#ddlEmployeeID'),
-        ExcludeFromWaitingList: optionalDropdown('#ddlWaitingList'),
+        RequireEmployeeID: dropdownValue('#ddlEmployeeID'),
+        ExcludeFromWaitingList: dropdownValue('#ddlWaitingList'),
         TotalLotCapacity: valueById('ContentPlaceHolder1_txtLotCapacity'),
         QB_ClassCode: valueById('ContentPlaceHolder1_txtQB_ClassCode'),
         Status: statusValue(),
@@ -298,6 +314,111 @@ BUILD_SAFE_SAVE_LOTS_PAYLOAD_SCRIPT = r"""
         Address2: valueById('ContentPlaceHolder1_txtAddress2'),
         PubRateDescription: valueById('ContentPlaceHolder1_txtPubRateDesc')
     };
+}
+"""
+
+COLLECT_WEBSITE_DIAGNOSTICS_SCRIPT = r"""
+() => {
+    const out = [];
+    const seen = new Set();
+
+    function clean(value) {
+        return String(value || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function add(source, value) {
+        const text = clean(value);
+        if (!text) return;
+        const line = `${source}: ${text}`;
+        if (seen.has(line)) return;
+        seen.add(line);
+        out.push(line);
+    }
+
+    function isVisible(element) {
+        if (!element || !element.isConnected) return false;
+        const style = window.getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+        return !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+    }
+
+    add('page', `${document.title || '(untitled)'} | ${location.href}`);
+
+    if (window.Page_IsValid === false) {
+        add('aspnet', 'Page_IsValid=false');
+    }
+
+    Array.from(window.Page_Validators || []).forEach(validator => {
+        if (!validator || validator.isvalid !== false) return;
+        const id = validator.id || validator.name || '(unnamed validator)';
+        const control = validator.controltovalidate ? ` control=${validator.controltovalidate}` : '';
+        const message = validator.errormessage || validator.innerText || validator.textContent || '';
+        add('aspnet validator', `${id}${control} ${message}`);
+    });
+
+    Array.from(window.Page_ValidationSummaries || []).forEach(summary => {
+        const message = summary.errormessage || summary.innerText || summary.textContent || '';
+        add('aspnet validation summary', message);
+    });
+
+    const messageSelectors = [
+        '[id*="ValidationSummary"]',
+        '.validation-summary-errors',
+        '.field-validation-error',
+        '.text-danger',
+        '.text-error',
+        '.alert',
+        '.alert-danger',
+        '.alert-warning',
+        '.alert-error',
+        '[role="alert"]',
+        '#toast-container',
+        '.toast',
+        '.toast-message',
+        '.swal2-popup',
+        '.sweet-alert',
+        '.modal .alert',
+        '[id*="lbl"][id*="Message"]',
+        '[id*="Lbl"][id*="Message"]',
+        '[id*="lbl"][id*="Error"]',
+        '[id*="Error"]'
+    ];
+
+    messageSelectors.forEach(selector => {
+        Array.from(document.querySelectorAll(selector)).forEach(element => {
+            if (isVisible(element)) add(`visible ${selector}`, element.innerText || element.textContent || '');
+        });
+    });
+
+    const validatorSelectors = [
+        'span[id*="Validator"]',
+        'span[id*="validator"]',
+        '[id*="RequiredFieldValidator"]',
+        '[id*="CompareValidator"]',
+        '[id*="RangeValidator"]',
+        '[id*="RegularExpressionValidator"]',
+        '[id*="CustomValidator"]'
+    ];
+
+    validatorSelectors.forEach(selector => {
+        Array.from(document.querySelectorAll(selector)).forEach(element => {
+            if (!isVisible(element) && element.isvalid !== false) return;
+            const message = element.getAttribute('errormessage') || element.innerText || element.textContent || '';
+            add(`validator element ${element.id || selector}`, message);
+        });
+    });
+
+    Array.from(document.querySelectorAll('input, select, textarea')).forEach(element => {
+        try {
+            if (element.willValidate && !element.checkValidity()) {
+                add('html5 invalid', `${element.id || element.name || element.tagName}: ${element.validationMessage}`);
+            }
+        } catch (err) {
+            // Some PM2020 controls may not support validity APIs consistently.
+        }
+    });
+
+    return out.slice(0, 80);
 }
 """
 
@@ -371,6 +492,29 @@ class UpdateResult:
     lot_name: str
     status: str
     message: str
+
+
+@dataclass
+class WebsiteDiagnostics:
+    events: list[str]
+
+    def add(self, source: str, message: Any) -> None:
+        text = _clean_diagnostic_text(f"{source}: {message}")
+        if not text:
+            return
+        self.events.append(text)
+        if len(self.events) > MAX_WEBSITE_DIAGNOSTIC_EVENTS:
+            del self.events[: len(self.events) - MAX_WEBSITE_DIAGNOSTIC_EVENTS]
+
+    def snapshot(self) -> list[str]:
+        return list(self.events)
+
+
+def _clean_diagnostic_text(value: Any, *, max_chars: int = MAX_WEBSITE_DIAGNOSTIC_TEXT) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) > max_chars:
+        return text[:max_chars] + f"... [{len(text) - max_chars} more chars]"
+    return text
 
 
 def _normalized_header(value: str) -> str:
@@ -565,7 +709,8 @@ def choose_lots_interactively(lots: Sequence[LotUpdate]) -> tuple[str, list[LotU
     print_lots(complete, limit=15)
 
     while True:
-        mode = input("\nChoose test size: 1, 3, 5, or all: ").strip().lower()
+        raw_mode = input("\nChoose test size: 1, 3, 5, all, or all no prompt: ").strip().lower()
+        mode = " ".join(raw_mode.replace("-", " ").split())
         if mode in {"1", "one"}:
             raw = input(
                 "Enter one selector as row:<csv row>, #<CSV data row>, id:<Lot ID>, exact Lot Name, exact Lot Title, exact Address 1, exact Address 2, "
@@ -590,7 +735,9 @@ def choose_lots_interactively(lots: Sequence[LotUpdate]) -> tuple[str, list[LotU
             return "five", selected
         if mode in {"all", "a"}:
             return "all", complete
-        print("Please enter 1, 3, 5, or all.")
+        if mode in {"all no prompt", "all noprompt", "allnp", "anp"}:
+            return ALL_NO_PROMPT_MODE, complete
+        print("Please enter 1, 3, 5, all, or all no prompt.")
 
 
 def choose_lots_from_args(
@@ -641,7 +788,14 @@ def require_complete_selected_lots(selected: Sequence[LotUpdate]) -> None:
         )
 
 
-def confirm_before_browser(mode: str, selected: Sequence[LotUpdate], *, assume_yes: bool, dry_run: bool) -> None:
+def confirm_before_browser(
+    mode: str,
+    selected: Sequence[LotUpdate],
+    *,
+    assume_yes: bool,
+    dry_run: bool,
+    existing_field_policy: str,
+) -> None:
     print("\nSelected lots:")
     print_lots(selected)
     print("\nFields that may be written, after existing-value review:")
@@ -651,14 +805,21 @@ def confirm_before_browser(mode: str, selected: Sequence[LotUpdate], *, assume_y
     print("  1. The matched lot-name cell in #tblLots")
     print(f"  2. {SAVE_BUTTON_SELECTOR} only after field values are filled and verified")
     print("\nExisting-value rule:")
-    print("  If an allowlisted field already has text, the script warns before changing it.")
+    if existing_field_policy == "new":
+        print("  If an allowlisted field already has different text, the script uses the CSV text without prompting.")
+    elif existing_field_policy == "old":
+        print("  If an allowlisted field already has different text, the script keeps the PM2020 text without prompting.")
+    elif existing_field_policy == "skip":
+        print("  If an allowlisted field already has different text, the script skips that lot without prompting.")
+    else:
+        print("  If an allowlisted field already has text, the script warns before changing it.")
 
     if dry_run:
         return
     if assume_yes:
         return
 
-    phrase = "UPDATE ALL" if mode == "all" else "UPDATE"
+    phrase = "UPDATE ALL" if mode in {"all", ALL_NO_PROMPT_MODE} else "UPDATE"
     typed = input(f"\nType {phrase!r} to continue, or anything else to abort: ").strip()
     if typed != phrase:
         raise SystemExit("Aborted before opening the browser.")
@@ -677,7 +838,7 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=["interactive", "one", "three", "five", "all"],
         default="interactive",
-        help="Selection mode. Default prompts for 1, 3, 5, or all.",
+        help="Selection mode. Default prompts for 1, 3, 5, all, or all no prompt.",
     )
     parser.add_argument(
         "--select",
@@ -793,6 +954,77 @@ def wait_for_manual_otp_if_required(page: Page, *, headless: bool, otp_timeout_m
             "Timed out waiting for manual OTP/IP-auth completion. "
             "Enter the OTP and click Submit, or rerun with a larger --otp-timeout-ms."
         ) from exc
+
+
+def install_website_diagnostics(page: Page) -> WebsiteDiagnostics:
+    diagnostics = WebsiteDiagnostics(events=[])
+
+    def add_response(response: Any) -> None:
+        try:
+            resource_type = response.request.resource_type
+            if response.status >= 400 and resource_type in {"document", "xhr", "fetch"}:
+                diagnostics.add("http", f"{response.status} {resource_type} {response.url}")
+        except Exception:
+            pass
+
+    def add_request_failed(request: Any) -> None:
+        try:
+            failure = getattr(request, "failure", "")
+            if callable(failure):
+                failure = failure()
+            diagnostics.add("requestfailed", f"{request.method} {request.url} {failure or ''}")
+        except Exception:
+            pass
+
+    def add_console(message: Any) -> None:
+        try:
+            if message.type in {"error", "warning"}:
+                diagnostics.add(f"console.{message.type}", message.text)
+        except Exception:
+            pass
+
+    def add_dialog(dialog: Any) -> None:
+        try:
+            diagnostics.add("dialog", f"{dialog.type}: {dialog.message}")
+            dialog.accept()
+        except Exception:
+            pass
+
+    page.on("response", add_response)
+    page.on("requestfailed", add_request_failed)
+    page.on("console", add_console)
+    page.on("pageerror", lambda exc: diagnostics.add("pageerror", exc))
+    page.on("dialog", add_dialog)
+    return diagnostics
+
+
+def collect_website_diagnostics(page: Page, diagnostics: WebsiteDiagnostics | None = None) -> list[str]:
+    items: list[str] = []
+    try:
+        raw_items = page.evaluate(COLLECT_WEBSITE_DIAGNOSTICS_SCRIPT)
+        if isinstance(raw_items, list):
+            items.extend(_clean_diagnostic_text(item) for item in raw_items)
+    except Exception as exc:
+        items.append(_clean_diagnostic_text(f"diagnostics collection failed: {exc}"))
+
+    if diagnostics is not None:
+        items.extend(diagnostics.snapshot())
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped[:MAX_WEBSITE_DIAGNOSTIC_EVENTS]
+
+
+def format_website_diagnostics(page: Page, diagnostics: WebsiteDiagnostics | None = None) -> str:
+    items = collect_website_diagnostics(page, diagnostics)
+    if not items:
+        return "Website diagnostics: none captured."
+    return "Website diagnostics:\n  - " + "\n  - ".join(items)
 
 
 def go_to_lots_admin(page: Page, lots_url: str, *, timeout_ms: int = 30_000) -> str:
@@ -997,6 +1229,10 @@ def build_safe_save_lots_payload(page: Page) -> dict[str, str]:
     return result
 
 
+def blank_int_payload_fields(payload: dict[str, str]) -> list[str]:
+    return sorted(field for field in INT_SAVE_LOTS_PAYLOAD_FIELDS if payload.get(field, "").strip() == "")
+
+
 def _install_next_savelots_payload_rewrite(page: Page, payload: dict[str, str]):
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
@@ -1011,7 +1247,13 @@ def _install_next_savelots_payload_rewrite(page: Page, payload: dict[str, str]):
     return handler
 
 
-def click_save_lot_info(page: Page, *, wait_ms: int, timeout_ms: int) -> tuple[int, str]:
+def click_save_lot_info(
+    page: Page,
+    *,
+    wait_ms: int,
+    timeout_ms: int,
+    diagnostics: WebsiteDiagnostics | None = None,
+) -> tuple[int, str]:
     save_button = page.locator(SAVE_BUTTON_SELECTOR)
     if save_button.count() != 1:
         raise RuntimeError(f"Expected exactly one save button at {SAVE_BUTTON_SELECTOR}; found {save_button.count()}.")
@@ -1058,7 +1300,10 @@ def click_save_lot_info(page: Page, *, wait_ms: int, timeout_ms: int) -> tuple[i
         page.wait_for_timeout(wait_ms)
     except PlaywrightTimeoutError as exc:
         page.wait_for_timeout(wait_ms)
-        raise RuntimeError("Timed out waiting for Lots.aspx/SaveLots after clicking #btnLotInfo.") from exc
+        raise RuntimeError(
+            "Timed out waiting for Lots.aspx/SaveLots after clicking #btnLotInfo.\n"
+            + format_website_diagnostics(page, diagnostics)
+        ) from exc
     finally:
         try:
             page.unroute(SAVE_LOTS_ROUTE, route_handler)
@@ -1066,21 +1311,41 @@ def click_save_lot_info(page: Page, *, wait_ms: int, timeout_ms: int) -> tuple[i
             pass
 
     if response.status != 200:
-        raise RuntimeError(f"SaveLots failed with HTTP {response.status}; body={body!r}")
+        blank_fields = blank_int_payload_fields(payload)
+        blank_detail = ", ".join(blank_fields) if blank_fields else "none"
+        raise RuntimeError(
+            f"SaveLots failed with HTTP {response.status}; blank integer payload fields={blank_detail}; body={body!r}\n"
+            + format_website_diagnostics(page, diagnostics)
+        )
 
     try:
         parsed = json.loads(body) if body else {}
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"SaveLots returned non-JSON response body: {body!r}") from exc
+        raise RuntimeError(
+            f"SaveLots returned non-JSON response body: {body!r}\n"
+            + format_website_diagnostics(page, diagnostics)
+        ) from exc
 
     saved_id = parsed.get("d") if isinstance(parsed, dict) else None
     if saved_id is None or str(saved_id).strip() in {"", "0"}:
-        raise RuntimeError(f"SaveLots did not confirm a saved lot ID; body={body!r}")
+        raise RuntimeError(
+            f"SaveLots did not confirm a saved lot ID; body={body!r}\n"
+            + format_website_diagnostics(page, diagnostics)
+        )
 
     return response.status, body
 
 
-def update_one_lot(page: Page, lot: LotUpdate, *, lots_url: str, wait_ms: int, timeout_ms: int, existing_field_policy: str) -> UpdateResult:
+def update_one_lot(
+    page: Page,
+    lot: LotUpdate,
+    *,
+    lots_url: str,
+    wait_ms: int,
+    timeout_ms: int,
+    existing_field_policy: str,
+    diagnostics: WebsiteDiagnostics | None = None,
+) -> UpdateResult:
     current_url = go_to_lots_admin(page, lots_url, timeout_ms=timeout_ms)
     if appears_to_still_be_login_page(page):
         raise RuntimeError(f"Navigation to Lots.aspx returned to the login page. Current URL: {current_url}")
@@ -1133,7 +1398,12 @@ def update_one_lot(page: Page, lot: LotUpdate, *, lots_url: str, wait_ms: int, t
             timeout_ms=timeout_ms,
         )
 
-    status, body = click_save_lot_info(page, wait_ms=wait_ms, timeout_ms=timeout_ms)
+    status, body = click_save_lot_info(
+        page,
+        wait_ms=wait_ms,
+        timeout_ms=timeout_ms,
+        diagnostics=diagnostics,
+    )
     return UpdateResult(
         csv_row_number=lot.csv_row_number,
         parkmaster_lot_id=lot.parkmaster_lot_id,
@@ -1170,74 +1440,80 @@ def run_browser_updates(selected: Sequence[LotUpdate], args: argparse.Namespace)
     storage_state_path.parent.mkdir(parents=True, exist_ok=True)
 
     results: list[UpdateResult] = []
-    browser = None
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=args.headless, slow_mo=args.slow_mo)
-            context = browser.new_context(ignore_https_errors=True)
-            page = context.new_page()
+            try:
+                context = browser.new_context(ignore_https_errors=True)
+                page = context.new_page()
+                diagnostics = install_website_diagnostics(page)
 
-            login_url_after_click = login_to_pm2020(
-                page,
-                creds_path=args.creds,
-                login_url=args.login_url,
-                timeout_ms=args.timeout_ms,
-            )
-            print(f"Login click completed. Current URL: {login_url_after_click}")
+                login_url_after_click = login_to_pm2020(
+                    page,
+                    creds_path=args.creds,
+                    login_url=args.login_url,
+                    timeout_ms=args.timeout_ms,
+                )
+                print(f"Login click completed. Current URL: {login_url_after_click}")
 
-            wait_for_manual_otp_if_required(
-                page,
-                headless=args.headless,
-                otp_timeout_ms=args.otp_timeout_ms,
-            )
-
-            if appears_to_still_be_login_page(page):
-                raise SystemExit(
-                    "Login form is still visible after clicking Login. "
-                    "Check credentials or any login error text before continuing."
+                wait_for_manual_otp_if_required(
+                    page,
+                    headless=args.headless,
+                    otp_timeout_ms=args.otp_timeout_ms,
                 )
 
-            context.storage_state(path=str(storage_state_path))
-            print(f"Saved storage state to: {storage_state_path}")
+                if appears_to_still_be_login_page(page):
+                    raise SystemExit(
+                        "Login form is still visible after clicking Login. "
+                        "Check credentials or any login error text before continuing."
+                    )
 
-            for index, lot in enumerate(selected, start=1):
-                print(f"\n=== Updating {index} of {len(selected)} ===")
-                print(lot.display_key())
+                context.storage_state(path=str(storage_state_path))
+                print(f"Saved storage state to: {storage_state_path}")
+
+                for index, lot in enumerate(selected, start=1):
+                    print(f"\n=== Updating {index} of {len(selected)} ===")
+                    print(lot.display_key())
+                    try:
+                        result = update_one_lot(
+                            page,
+                            lot,
+                            lots_url=args.lots_url,
+                            wait_ms=args.wait_ms,
+                            timeout_ms=args.timeout_ms,
+                            existing_field_policy=args.existing_field_policy,
+                            diagnostics=diagnostics,
+                        )
+                        results.append(result)
+                        print(f"Status: {result.status}. {result.message}")
+                        write_run_log(results)
+                    except Exception as exc:
+                        failed = UpdateResult(
+                            csv_row_number=lot.csv_row_number,
+                            parkmaster_lot_id=lot.parkmaster_lot_id,
+                            lot_name=lot.lot_name,
+                            status="failed",
+                            message=str(exc),
+                        )
+                        results.append(failed)
+                        write_run_log(results)
+                        print(f"ERROR on {lot.display_key()}: {exc}")
+                        if not args.continue_on_error:
+                            if args.keep_open:
+                                input("Press ENTER to close the browser after the error...")
+                            raise
+
+                if results:
+                    log_path = write_run_log(results)
+                    print(f"\nWrote run log: {log_path}")
+
+                if args.keep_open:
+                    input("Press ENTER to close the browser...")
+            finally:
                 try:
-                    result = update_one_lot(
-                        page,
-                        lot,
-                        lots_url=args.lots_url,
-                        wait_ms=args.wait_ms,
-                        timeout_ms=args.timeout_ms,
-                        existing_field_policy=args.existing_field_policy,
-                    )
-                    results.append(result)
-                    print(f"Status: {result.status}. {result.message}")
-                    write_run_log(results)
-                except Exception as exc:
-                    failed = UpdateResult(
-                        csv_row_number=lot.csv_row_number,
-                        parkmaster_lot_id=lot.parkmaster_lot_id,
-                        lot_name=lot.lot_name,
-                        status="failed",
-                        message=str(exc),
-                    )
-                    results.append(failed)
-                    write_run_log(results)
-                    print(f"ERROR on {lot.display_key()}: {exc}")
-                    if not args.continue_on_error:
-                        raise
-
-            if results:
-                log_path = write_run_log(results)
-                print(f"\nWrote run log: {log_path}")
-
-            if args.keep_open:
-                input("Press ENTER to close the browser...")
-
-            browser.close()
-            browser = None
+                    browser.close()
+                except PlaywrightError:
+                    pass
     except PlaywrightError as exc:
         message = str(exc)
         if "Executable doesn't exist" in message or "playwright install" in message.lower():
@@ -1246,9 +1522,6 @@ def run_browser_updates(selected: Sequence[LotUpdate], args: argparse.Namespace)
                 "    python -m playwright install chromium"
             ) from exc
         raise
-    finally:
-        if browser is not None and browser.is_connected():
-            browser.close()
     return results
 
 
@@ -1271,8 +1544,16 @@ def main() -> None:
         return
 
     mode, selected = choose_lots_from_args(lots, mode=args.mode, raw_select=args.select)
+    if mode == ALL_NO_PROMPT_MODE:
+        args.existing_field_policy = "new"
     require_complete_selected_lots(selected)
-    confirm_before_browser(mode, selected, assume_yes=args.yes, dry_run=args.dry_run)
+    confirm_before_browser(
+        mode,
+        selected,
+        assume_yes=args.yes,
+        dry_run=args.dry_run,
+        existing_field_policy=args.existing_field_policy,
+    )
 
     if args.dry_run:
         print("\nDry run complete. Browser was not opened and PM2020 was not changed.")
