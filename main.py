@@ -7,12 +7,14 @@ Post-login safety contract:
 
 * The only lot-list click is the matched lot-name cell in #tblLots.
 * The only save click is the exact #btnLotInfo button with onclick="saveLotsInfo();".
-* The only lot fields written are:
+* The only lot fields written from CSV are:
     - #ContentPlaceHolder1_txtDescription
     - #ContentPlaceHolder1_txtNotes
     - #ContentPlaceHolder1_txtFacOverview
     - #ContentPlaceHolder1_txtAddress
     - #ContentPlaceHolder1_txtAddress2
+* If the manager dropdown is blank or still on Select, it is set to
+  Thomas Landen before saving so PM2020's SaveLots integer payload is valid.
 * No search boxes, search buttons, Add New, Cancel, Close, tab, map, amenity,
   photo, notes, rules, space, rate, profile, or menu controls are clicked.
 * If any allowlisted field already contains text, the script warns before
@@ -54,7 +56,7 @@ except ImportError:
         login_to_pm2020,
     )
 
-SCRIPT_VERSION = "2026-06-11-website-diagnostics-v1"
+SCRIPT_VERSION = "2026-06-11-default-manager-v1"
 ALL_NO_PROMPT_MODE = "all_no_prompt"
 MAX_WEBSITE_DIAGNOSTIC_EVENTS = 80
 MAX_WEBSITE_DIAGNOSTIC_TEXT = 800
@@ -93,6 +95,9 @@ FACILITY_HIGHLIGHTS_SELECTOR = "#ContentPlaceHolder1_txtNotes"
 FACILITY_OVERVIEW_SELECTOR = "#ContentPlaceHolder1_txtFacOverview"
 ADDRESS_1_SELECTOR = "#ContentPlaceHolder1_txtAddress"
 ADDRESS_2_SELECTOR = "#ContentPlaceHolder1_txtAddress2"
+MANAGER_SELECTOR = "#ContentPlaceHolder1_ddlManagers"
+DEFAULT_MANAGER_NAME = "Thomas Landen"
+DEFAULT_MANAGER_USER_ID = "1189"
 
 ALLOWED_LOT_FILL_SELECTORS = {
     "Lot Title": LOT_TITLE_SELECTOR,
@@ -313,6 +318,56 @@ BUILD_SAFE_SAVE_LOTS_PAYLOAD_SCRIPT = r"""
         FacOverview: valueById('ContentPlaceHolder1_txtFacOverview'),
         Address2: valueById('ContentPlaceHolder1_txtAddress2'),
         PubRateDescription: valueById('ContentPlaceHolder1_txtPubRateDesc')
+    };
+}
+"""
+
+ENSURE_DEFAULT_MANAGER_SCRIPT = r"""
+([selector, fallbackValue, fallbackText]) => {
+    const select = document.querySelector(selector);
+    if (!select) {
+        return {changed: false, value: '', text: '', reason: `No manager select found at ${selector}.`};
+    }
+
+    const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+    const options = Array.from(select.options || []);
+    const selectedOption = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+    const currentValue = normalize(select.value);
+    const currentText = normalize(selectedOption ? selectedOption.text : '');
+    const isUnset = currentValue === '' || currentValue === '0' || currentText === '' || currentText.toLowerCase() === 'select';
+
+    if (!isUnset) {
+        return {changed: false, value: currentValue, text: currentText, reason: 'Manager already selected.'};
+    }
+
+    let fallback = options.find(option => normalize(option.value) === fallbackValue);
+    if (!fallback) {
+        const expectedText = normalize(fallbackText).toLowerCase();
+        fallback = options.find(option => normalize(option.text).toLowerCase() === expectedText);
+    }
+
+    if (!fallback) {
+        return {
+            changed: false,
+            value: currentValue,
+            text: currentText,
+            reason: `Could not find manager option ${fallbackText} (${fallbackValue}).`
+        };
+    }
+
+    const previousValue = currentValue;
+    const previousText = currentText;
+    select.value = fallback.value;
+    select.dispatchEvent(new Event('input', {bubbles: true}));
+    select.dispatchEvent(new Event('change', {bubbles: true}));
+
+    const newSelectedOption = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+    return {
+        changed: true,
+        previousValue,
+        previousText,
+        value: normalize(select.value),
+        text: normalize(newSelectedOption ? newSelectedOption.text : fallback.text)
     };
 }
 """
@@ -1211,6 +1266,49 @@ def safe_fill_lot_field(page: Page, selector: str, value: str, *, label: str, wa
         )
 
 
+def ensure_default_manager_if_unset(page: Page, *, wait_ms: int, timeout_ms: int) -> None:
+    manager = page.locator(MANAGER_SELECTOR)
+    manager.wait_for(state="attached", timeout=timeout_ms)
+    count = manager.count()
+    if count != 1:
+        raise RuntimeError(f"Expected exactly one manager dropdown at {MANAGER_SELECTOR}; found {count}.")
+
+    result = page.evaluate(
+        ENSURE_DEFAULT_MANAGER_SCRIPT,
+        [MANAGER_SELECTOR, DEFAULT_MANAGER_USER_ID, DEFAULT_MANAGER_NAME],
+    )
+    if not isinstance(result, dict):
+        raise RuntimeError("Could not inspect the manager dropdown before saving.")
+
+    value = str(result.get("value", "")).strip()
+    text = str(result.get("text", "")).strip()
+    reason = str(result.get("reason", "")).strip()
+
+    if result.get("changed"):
+        page.wait_for_timeout(wait_ms)
+        actual = manager.input_value(timeout=timeout_ms).strip()
+        if actual != DEFAULT_MANAGER_USER_ID:
+            raise RuntimeError(
+                f"After selecting default manager, {MANAGER_SELECTOR} value is {actual!r}; "
+                f"expected {DEFAULT_MANAGER_USER_ID!r}."
+            )
+        previous = str(result.get("previousText") or result.get("previousValue") or "unset").strip()
+        print(
+            f"Manager was {previous!r}; selected {DEFAULT_MANAGER_NAME} "
+            f"({DEFAULT_MANAGER_USER_ID}) before saving."
+        )
+        return
+
+    if value in {"", "0"} or text == "" or text.casefold() == "select":
+        detail = f" Current manager value={value!r}, text={text!r}."
+        if reason:
+            detail += f" {reason}"
+        raise RuntimeError(
+            f"Manager dropdown is unset and could not be defaulted to "
+            f"{DEFAULT_MANAGER_NAME} ({DEFAULT_MANAGER_USER_ID}).{detail}"
+        )
+
+
 def build_safe_save_lots_payload(page: Page) -> dict[str, str]:
     payload = page.evaluate(BUILD_SAFE_SAVE_LOTS_PAYLOAD_SCRIPT)
     if not isinstance(payload, dict):
@@ -1284,6 +1382,7 @@ def click_save_lot_info(
     if attrs.get("disabled") or attrs.get("hiddenClass") or attrs.get("display") == "none" or attrs.get("visibility") == "hidden":
         raise RuntimeError("Save button exists but is disabled/hidden; refusing to click.")
 
+    ensure_default_manager_if_unset(page, wait_ms=wait_ms, timeout_ms=timeout_ms)
     payload = build_safe_save_lots_payload(page)
     route_handler = _install_next_savelots_payload_rewrite(page, payload)
 
